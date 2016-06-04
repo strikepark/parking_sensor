@@ -1,0 +1,15 @@
+
+State Machine - |main|I2C_AV_Config:u7|mSetup_ST
+Name mSetup_ST.00 mSetup_ST.10 mSetup_ST.01 
+mSetup_ST.00 0 0 0 
+mSetup_ST.01 1 0 1 
+mSetup_ST.10 1 1 0 
+
+State Machine - |main|FSM:fsm|sound_state
+Name sound_state.distance_over_thirty sound_state.distance_thirty sound_state.distance_twenty sound_state.distance_ten sound_state.distance_five sound_state.distance_idle 
+sound_state.distance_idle 0 0 0 0 0 0 
+sound_state.distance_five 0 0 0 0 1 1 
+sound_state.distance_ten 0 0 0 1 0 1 
+sound_state.distance_twenty 0 0 1 0 0 1 
+sound_state.distance_thirty 0 1 0 0 0 1 
+sound_state.distance_over_thirty 1 0 0 0 0 1 

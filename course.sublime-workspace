@@ -1,0 +1,716 @@
+{
+	"auto_complete":
+	{
+		"selected_items":
+		[
+			[
+				"tex",
+				"text-align"
+			],
+			[
+				"font",
+				"font-weight"
+			],
+			[
+				"mar",
+				"margin"
+			],
+			[
+				"in",
+				"inline"
+			],
+			[
+				"di",
+				"display"
+			],
+			[
+				"pos",
+				"position"
+			],
+			[
+				"z-",
+				"z-index"
+			],
+			[
+				"fu",
+				"function"
+			],
+			[
+				"co",
+				"color"
+			],
+			[
+				"border-b",
+				"border-bottom-color"
+			],
+			[
+				"text-a",
+				"text-align"
+			],
+			[
+				"li",
+				"line-height"
+			],
+			[
+				"t",
+				"type	Attr"
+			],
+			[
+				"ti",
+				"title	Tag"
+			],
+			[
+				"me",
+				"meta	Tag"
+			],
+			[
+				"drop",
+				"dropList"
+			]
+		]
+	},
+	"buffers":
+	[
+		{
+			"contents": "module main(\n	// Clock Input\n	input CLOCK_50,\n	input CLOCK_27,\n\n	input wire [35:0] GPIO_0,\n	input [9:0] SW,\n	input [3:0] KEY,\n\n	output wire [35:0] GPIO_1,\n	output [6:0] HEX0, HEX1, HEX2, HEX3,\n	\n	output [7:0] LEDG,\n	output [9:0] LEDR,\n\n	// I2C\n	inout I2C_SDAT,\n	output I2C_SCLK,\n\n	// Audio CODEC\n	inout AUD_BCLK, // Audio CODEC Bit-Stream Clock\n	input AUD_ADCDAT, // Audio CODEC ADC Data\n	output AUD_ADCLRCK, // Audio CODEC ADC LR Clock\n	output AUD_DACLRCK, // Audio CODEC DAC LR Clock\n	output AUD_DACDAT, // Audio CODEC DAC Data\n	output AUD_XCK // Audio CODEC Chip Clock\n);\n	\n	// Êíîïêà äëÿ ñáðîñà\n	wire reset;\n\n	button btn(\n		.clk(CLOCK_50),\n		.key(KEY[0]),\n		.btn_pressed(reset)\n	);\n\n	// START Distance block\n	assign echo = GPIO_0[0];\n	assign GPIO_1[0] = trigger;\n	wire [11:0] distance;\n\n	wire flag;\n	ranging_module range(\n		.clk(CLOCK_50),\n		.echo(echo),\n		.reset(reset),\n\n		.trig(trigger),\n		.flag(flag),\n		.distance(distance)\n	);\n\n\n\n	wire [3:0] distance_ones;\n	wire [3:0] distance_tens;\n	wire [3:0] distance_hundreds;\n	wire [3:0] distance_thousands;\n\n	bin2bcd decoder(\n		.B({2'b00, distance}),\n\n		.BCD_0(distance_ones),\n		.BCD_1(distance_tens),\n		.BCD_2(distance_hundreds),\n		.BCD_3(distance_thousands)\n	);\n	\n	hex_7seg decoder2(\n		.cs(distance_ones),\n		.ds(distance_tens),\n		.s(distance_hundreds),\n		.das(distance_thousands),\n\n		.seg0(HEX0),\n		.seg1(HEX1),\n		.seg2(HEX2),\n		.seg3(HEX3)\n	);\n	// END Distance block\n\n\n\n	// START FSM Sound Block\n	reg [2:0] sound_state;\n	reg [6:0] sound_volume;\n\n	parameter distance_unknown = 0;\n	parameter distance_ten = 1;\n	parameter distance_twenty = 2;\n	parameter distance_thirty = 3;\n	parameter distance_over_thirty = 4;\n\n	always @(sound_state) begin\n		case (sound_state)\n			distance_unknown: begin\n					sound_volume <= 0;\n				end\n			distance_ten: begin\n					sound_volume <= 100;\n				end\n			distance_twenty: begin\n					sound_volume <= 70;\n				end\n			distance_thirty: begin\n					sound_volume <= 40;\n				end\n			distance_over_thirty: begin\n					sound_volume <= 0;\n				end\n		endcase\n	end\n	\n	always @(posedge CLOCK_50) begin\n		case (sound_state)\n			distance_unknown: begin\n				sound_state <= distance_ten;\n			end\n			distance_ten: begin\n				if (distance < 5)\n					begin\n						sound_state <= distance_ten;\n					end\n				else\n					begin\n						sound_state <= distance_twenty;\n					end\n			end\n			distance_twenty: begin\n				if (distance < 15)\n					begin\n						sound_state <= distance_twenty;\n					end\n				else\n					begin\n						sound_state <= distance_thirty;\n					end\n			end\n			distance_thirty: begin\n				if (distance < 25)\n					begin\n						sound_state <= distance_thirty;\n					end\n				else\n					begin\n						sound_state <= distance_over_thirty;\n					end\n			end\n			distance_over_thirty: begin\n				if (distance >= 25)\n					begin\n						sound_state <= distance_over_thirty;\n					end\n				else\n					begin\n						sound_state <= distance_unknown;\n					end\n			end\n		endcase\n	end\n	// END FSM Sound Block\n	\n	//  Turn on all display\n	assign LEDR = distance[9:0];\n	assign LEDG = volume1;\n\n	// AUDIO\n	wire AUD_CTRL_CLK;\n	assign AUD_ADCLRCK = AUD_DACLRCK;\n	assign AUD_XCK = AUD_CTRL_CLK;\n\n	VGA_Audio_PLL u1(\n		.areset(~I2C_END),\n		.inclk0(CLOCK_27),\n		.c1(AUD_CTRL_CLK)\n	);\n\n	reg [7:0] DELAY; \n	always @(posedge CLOCK_50)\n		if (!DELAY[7])\n			DELAY = DELAY + 1;\n	\n	wire I2C_END;\n	\n	reg res =0;\n	wire [7:0]volll;\n	reg  [7:0] volume1;\n	assign volll = volume1;\n	always @(posedge distance)\n		begin\n			if(res) begin\n				res=0;\n			end\n			else if (distance < 12'd20) begin\n				volume1 <= 7'b1110000;\n				res=1;\n				end\n			else begin\n				volume1 <= 7'b0000000;\n				res=1;\n				end \n		end\n		\n	\n	I2C_AV_Config u7(\n		.iCLK(CLOCK_50),\n		.iRST_N(res),\n		.o_I2C_END(I2C_END),\n		.iVOL(volll), // TODO                               \n		.I2C_SCLK(I2C_SCLK),\n		.I2C_SDAT(I2C_SDAT)\n	);\n	\n\n	adio_codec ad1(\n		.iSrc_Select(2'b00),\n		.iCLK_18_4(AUD_CTRL_CLK),\n\n		.sound1(sound1),\n		\n		.oAUD_BCK (AUD_BCLK),\n		.oAUD_DATA(AUD_DACDAT),\n		.oAUD_LRCK(AUD_DACLRCK),\n	);\n\n	// Music-Synthesizer Block\n\n	// Timing or Clock generater\n	reg [31:0] VGA_CLK_o;\n	wire keyboard_sysclk = VGA_CLK_o[11];\n\n	assign VGA_CLK = VGA_CLK_o[0];\n	always @(posedge CLOCK_50)\n		VGA_CLK_o = VGA_CLK_o + 1;\n\n	// DEMO Sound\n	wire demo_clock = VGA_CLK_o[18];\n	wire [7:0] demo_code1;\n	demo_sound1 dd1(\n		.clock(demo_clock),\n		.k_tr(~1'b1),\n		\n		.key_code(demo_code1)\n	);\n\n	// Sound Select\n	wire [15:0] sound1;\n	wire sound_off1;\n	wire [7:0] sound_code1 = demo_code1;\n\n	\n	staff st1(\n		.scan_code1(sound_code1),\n		.sound1(sound1)\n	);\nendmodule",
+			"file": "/G/work/parking_sensor/main.v",
+			"file_size": 4946,
+			"file_write_time": 131092748700000000,
+			"settings":
+			{
+				"buffer_size": 4493,
+				"line_ending": "Windows"
+			}
+		},
+		{
+			"file": "/G/work/parking_sensor/adio_codec.v",
+			"settings":
+			{
+				"buffer_size": 2255,
+				"line_ending": "Windows"
+			}
+		},
+		{
+			"contents": "module wave_gen_sin(\n	input  [5:0] ramp,\n	output reg [15:0] music_o\n);\n\nalways @(ramp[5:0]) begin\n	case(ramp[5:0])\n		0 :music_o = 16'h0;\n		1: music_o = 16'h322;\n		2: music_o = 16'h63D;\n		3: music_o = 16'h948;\n		4: music_o = 16'hC3D;\n		5: music_o = 16'hF13;\n		6: music_o = 16'h11C5;\n		7: music_o = 16'h144A;\n		8: music_o = 16'h169E;\n		9: music_o = 16'h18B9;\n		10: music_o = 16'h1A98;\n		11: music_o = 16'h1C36;\n		12: music_o = 16'h1D8E;\n		13: music_o = 16'h1E9D;\n		14: music_o = 16'h1F61;\n		15: music_o = 16'h1FD7;\n		16: music_o = 16'h1FFF;\n		17: music_o = 16'h1FD8;\n		18: music_o = 16'h1F63;\n		19: music_o = 16'h1EA1;\n		20: music_o = 16'h1D93;\n		21: music_o = 16'h1C3C;\n		22: music_o = 16'h1AA0;\n		23: music_o = 16'h18C2;\n		24: music_o = 16'h16A7;\n		25: music_o = 16'h1454;\n		26: music_o = 16'h11CF;\n		27: music_o = 16'hF1F;\n		28: music_o = 16'hC49;\n		29: music_o = 16'h955;\n		30: music_o = 16'h64A;\n		31: music_o = 16'h32F;\n		32: music_o = 16'hD;\n		33: music_o = 16'hFFFFFCEA;\n		34: music_o = 16'hFFFFF9CF;\n		35: music_o = 16'hFFFFF6C3;\n		36: music_o = 16'hFFFFF3CE;\n		37: music_o = 16'hFFFFF0F7;\n		38: music_o = 16'hFFFFEE45;\n		39: music_o = 16'hFFFFEBBF;\n		40: music_o = 16'hFFFFE96B;\n		41: music_o = 16'hFFFFE74E;\n		42: music_o = 16'hFFFFE56E;\n		43: music_o = 16'hFFFFE3CF;\n		44: music_o = 16'hFFFFE276;\n		45: music_o = 16'hFFFFE166;\n		46: music_o = 16'hFFFFE0A1;\n		47: music_o = 16'hFFFFE029;\n		48: music_o = 16'hFFFFE000;\n		49: music_o = 16'hFFFFE025;\n		50: music_o = 16'hFFFFE099;\n		51: music_o = 16'hFFFFE15A;\n		52: music_o = 16'hFFFFE267;\n		53: music_o = 16'hFFFFE3BD;\n		54: music_o = 16'hFFFFE558;\n		55: music_o = 16'hFFFFE735;\n		56: music_o = 16'hFFFFE94F;\n		57: music_o = 16'hFFFFEBA1;\n		58: music_o = 16'hFFFFEE25;\n		59: music_o = 16'hFFFFF0D5;\n		60: music_o = 16'hFFFFF3AA;\n		61: music_o = 16'hFFFFF69E;\n		62: music_o = 16'hFFFFF9A9;\n		63: music_o = 16'hFFFFFCC3;\n		default: music_o = 0;\n	endcase\nend\nendmodule\n",
+			"file": "/G/work/parking_sensor/wave_gen_sin.v",
+			"file_size": 1805,
+			"file_write_time": 129895952020000000,
+			"settings":
+			{
+				"buffer_size": 1924,
+				"line_ending": "Windows"
+			}
+		},
+		{
+			"contents": "module demo_sound(\n	input clock,\n	input k_tr,\n	\n	output [7:0] key_code\n);\n\n	reg [15:0] tmp;\n	wire [15:0] tmpa;\n	reg tr;\n	reg [15:0] step;\n	wire [15:0] step_r;\n	reg [15:0] TT;\n	reg [5:0] st;\n	reg go_end;\n\n	always @(negedge k_tr or posedge clock) begin\n		if (!k_tr) begin\n			step = 0;\n			st = 0;\n			tr = 0;\n		end else if (step < step_r) begin\n			case (st)\n				0: st = st + 1;\n				1: begin\n					tr = 0;\n					st = st + 1;\n				end\n				2: begin\n					tr = 1;\n					st = st + 1;\n				end\n				3: begin\n					if (go_end)\n						st = st + 1;\n				end\n				4: begin\n					st = 0;\n					step = step + 1;\n				end\n			endcase\n		end\n	end\n\n	wire [7:0] key_code1 = (\n		(TT[3:0] == 1) ? 8'h2b : (\n		(TT[3:0] == 2) ? 8'h34 : ( // 2\n		(TT[3:0] == 3) ? 8'h33 : ( // 3\n		(TT[3:0] == 4) ? 8'h3b : ( // 4\n		(TT[3:0] == 5) ? 8'h42 : ( // 5\n		(TT[3:0] == 6) ? 8'h4b : ( // 6\n		(TT[3:0] == 7) ? 8'h4c : ( // 7\n		(TT[3:0] == 10) ? 8'h52 : ( // 1\n		(TT[3:0] == 15) ? 8'hf0 : 8'hf0\n		))))))))\n	);\n\n	assign tmpa[15:0] = (\n		(TT[7:4] == 15) ? 16'h10: (\n		(TT[7:4] == 8) ? 16'h20: (\n		(TT[7:4] == 9) ? 16'h30: (\n		(TT[7:4] == 1) ? 16'h40: (\n		(TT[7:4] == 3) ? 16'h60: (\n		(TT[7:4] == 2) ? 16'h80: (\n		(TT[7:4] == 4) ? 16'h100: 0\n		))))))\n	);\n\n	// Note list\n	always @(posedge clock) begin\n		if (st == 0)\n			case (step)\n				0: TT = 8'hf6;\n				1: TT = 8'hf0; // TODO: add empty sound\n			endcase\n		end\n\n	assign step_r = 2;\n\n	// KEY release & code-out\n	always @(negedge tr or posedge clock) begin\n		if (!tr) begin\n			tmp = 0;\n			go_end = 0;\n		end else if (tmp > tmpa) begin\n			go_end = 1;\n		end else begin\n			tmp = tmp + 1;\n		end\n	end\n\n	assign key_code = (tmp < (tmpa - 1)) ? key_code1 : 8'hf0;\n\nendmodule\n\n",
+			"file": "/G/work/parking_sensor/demo_sound1.v",
+			"file_size": 1615,
+			"file_write_time": 131090728460000000,
+			"settings":
+			{
+				"buffer_size": 1659,
+				"line_ending": "Windows"
+			}
+		},
+		{
+			"file": "/G/work/parking_sensor/I2C_AV_Config.v",
+			"settings":
+			{
+				"buffer_size": 3288,
+				"line_ending": "Windows"
+			}
+		},
+		{
+			"file": "/C/Users/strikepark/Desktop/DE1/DE1_demonstrations/DE1_synthesizer/DE1_synthesizer.v",
+			"settings":
+			{
+				"buffer_size": 10957,
+				"line_ending": "Windows"
+			}
+		}
+	],
+	"build_system": "",
+	"build_system_choices":
+	[
+	],
+	"build_varint": "",
+	"command_palette":
+	{
+		"height": 392.0,
+		"last_filter": "c t t",
+		"selected_items":
+		[
+			[
+				"c t t",
+				"Indentation: Convert to Tabs"
+			],
+			[
+				"c t ta",
+				"Indentation: Convert to Tabs"
+			],
+			[
+				"c t s",
+				"Indentation: Convert to Spaces"
+			],
+			[
+				"gulp",
+				"Gulp: Exit editor killing running tasks"
+			],
+			[
+				"ins",
+				"Package Control: Install Package"
+			],
+			[
+				"insta",
+				"Package Control: Install Package"
+			],
+			[
+				"c t sp",
+				"Indentation: Convert to Spaces"
+			],
+			[
+				"ve",
+				"Set Syntax: Verilog"
+			]
+		],
+		"width": 400.0
+	},
+	"console":
+	{
+		"height": 146.0,
+		"history":
+		[
+			"import urllib.request,os,hashlib; h = '2915d1851351e5ee549c20394736b442' + '8bc59f460fa1548d1514676163dafc88'; pf = 'Package Control.sublime-package'; ipp = sublime.installed_packages_path(); urllib.request.install_opener( urllib.request.build_opener( urllib.request.ProxyHandler()) ); by = urllib.request.urlopen( 'http://packagecontrol.io/' + pf.replace(' ', '%20')).read(); dh = hashlib.sha256(by).hexdigest(); print('Error validating download (got %s instead of %s), please try manual install' % (dh, h)) if dh != h else open(os.path.join( ipp, pf), 'wb' ).write(by)"
+		]
+	},
+	"distraction_free":
+	{
+		"menu_visible": true,
+		"show_minimap": false,
+		"show_open_files": false,
+		"show_tabs": false,
+		"side_bar_visible": false,
+		"status_bar_visible": false
+	},
+	"expanded_folders":
+	[
+		"/E/University/PLD/Course"
+	],
+	"file_history":
+	[
+		"/G/work/parking_sensor/staff.v",
+		"/C/Users/strikepark/Desktop/DE1/DE1_demonstrations/DE1_synthesizer/staff.v",
+		"/C/Users/strikepark/AppData/Local/Temp/Temp1_Audio_Controller.zip/Audio_Controller/Audio_Controller.v",
+		"/G/work/parking_sensor/I2C_AV_Config.v",
+		"/G/work/parking_sensor/main.v",
+		"/G/work/v0.0.6/main.v",
+		"/E/Work/junior/tmp/style.css",
+		"/E/Work/junior/site/templates/scholars/create.jinja2",
+		"/E/Work/junior/site/templates/education_agency/edit.jinja2",
+		"/E/Work/junior/site/static/css/style.css",
+		"/E/Home/oldcooper/site/src/css/templates/main.css",
+		"/E/Home/oldcooper/site/src/assets/main.php",
+		"/E/Home/oldcooper/site/src/assets/header.php",
+		"/E/Home/oldcooper/site/src/assets/functions.php",
+		"/E/Home/oldcooper/site/src/assets/notices/notice.php",
+		"/E/Home/oldcooper/site/src/assets/content-single-product.php",
+		"/E/Home/oldcooper/site/src/js/popup.js",
+		"/E/Home/oldcooper/site/src/assets/notices/success.php",
+		"/E/Home/oldcooper/site/src/css/templates/popup.css",
+		"/E/Home/oldcooper/site/src/assets/single-product/meta.php",
+		"/E/Home/oldcooper/site/src/assets/single-product.php",
+		"/E/Home/oldcooper/site/src/assets/footer.php",
+		"/E/Home/oldcooper/site/.gitignore",
+		"/E/Home/oldcooper/site/.sublime-gulp.cache",
+		"/E/Home/oldcooper/site/src/assets/single-product/add-to-cart/grouped.php",
+		"/E/Home/oldcooper/site/src/assets/single-product/add-to-cart/variable.php",
+		"/E/Home/oldcooper/site/src/css/templates/product.css",
+		"/E/Home/oldcooper/site/src/assets/single-product/add-to-cart/variation.php",
+		"/E/Home/oldcooper/site/src/assets/single-product/add-to-cart/variation-add-to-cart-button.php",
+		"/E/Home/oldcooper/site/src/assets/single-product/price.php",
+		"/C/Users/strikepark/AppData/Roaming/Sublime Text 3/Packages/User/Gulp.sublime-settings",
+		"/E/Home/oldcooper/site/tasks/ftp.js",
+		"/E/Home/oldcooper/site/src/assets/single-product/add-to-cart/simple.php",
+		"/E/Home/oldcooper/site/src/assets/single-product/product-image.php",
+		"/E/Home/oldcooper/site/src/css/base/common.css",
+		"/E/Home/oldcooper/site/gulpfile.js",
+		"/C/Users/strikepark/AppData/Roaming/Sublime Text 3/Packages/User/ColorHighlighter.sublime-settings",
+		"/C/Users/strikepark/AppData/Roaming/Sublime Text 3/Packages/User/Preferences.sublime-settings",
+		"/C/Users/strikepark/AppData/Roaming/Sublime Text 3/Packages/User/Default (Windows).sublime-keymap",
+		"/E/Home/oldcooper/site/README.md",
+		"/E/Home/oldcooper/site/src/css/templates/footer.css",
+		"/E/Home/oldcooper/site/src/css/style.css",
+		"/C/Users/strikepark/AppData/Roaming/Sublime Text 3/Packages/User/Terminal.sublime-settings",
+		"/E/Home/oldcooper/site/.eslintrc",
+		"/C/Users/strikepark/AppData/Roaming/Sublime Text 3/Packages/Terminal/Terminal.sublime-settings",
+		"/C/Users/strikepark/AppData/Roaming/Sublime Text 3/Packages/Default/Preferences.sublime-settings",
+		"/C/Users/strikepark/Desktop/DE1/DE1_demonstrations/DE1_synthesizer/I2C_AV_Config.v",
+		"/C/Users/strikepark/Desktop/DE1/DE1_demonstrations/DE1_synthesizer/DE1_synthesizer.v",
+		"/C/Users/strikepark/Desktop/DE1/DE1_demonstrations/DE1_synthesizer/demo_sound1.v",
+		"/C/Projects/Home/oldcooper/wordpress/wp-includes/js/comment-reply.js",
+		"/C/Users/strikepark/Desktop/DE1/DE1_demonstrations/DE1_synthesizer/wave_gen_sin.v",
+		"/C/Users/strikepark/Desktop/DE1/DE1_demonstrations/DE1_synthesizer/VGA_Audio_PLL.v",
+		"/C/Users/strikepark/Desktop/DE1/DE1_demonstrations/DE1_synthesizer/adio_codec.v",
+		"/C/Users/strikepark/Desktop/DE1/DE1_demonstrations/DE1_synthesizer/PS2_KEYBOARD.v",
+		"/C/Users/strikepark/Desktop/DE1/DE1_demonstrations/DE1_synthesizer/bar.v",
+		"/C/Users/strikepark/Desktop/DE1/DE1_demonstrations/DE1_synthesizer/bar_big.v",
+		"/C/Projects/Home/oldcooper/.htaccess",
+		"/C/Projects/Home/oldcooper/wp-config.php",
+		"/C/Projects/Home/oldcooper/tmp/oldcooper/src/css/all/news.css",
+		"/C/Projects/Home/oldcooper/tmp/oldcooper/src/css/all/main_page.css",
+		"/C/Projects/Home/oldcooper/tmp/oldcooper/gulpfile.js",
+		"/C/Projects/Home/oldcooper/tmp/oldcooper/src/js/index.js",
+		"/C/Projects/Home/oldcooper/tmp/oldcooper/src/css/all/core.css",
+		"/C/Projects/Home/oldcooper/tmp/oldcooper/src/css/all/header.css",
+		"/C/Projects/Home/oldcooper/tmp/oldcooper/src/css/all/footer.css",
+		"/C/Projects/Home/oldcooper/tmp/oldcooper/src/footer.php",
+		"/F/v2/PLIS/parking_sensor/ranging_module.v",
+		"/C/Projects/Home/oldcooper/wordpress/wp-config.php",
+		"/C/Projects/Home/oldcooper/tmp/oldcooper/oldcooper/style.css",
+		"/C/Projects/Home/oldcooper/tmp/oldcooper/.gitignore",
+		"/C/Projects/Work/yaki/yaki/static/gulp/config.js",
+		"/C/Projects/Work/yaki/yaki/static/gulp/tasks/development/sprites.js",
+		"/C/Projects/Work/yaki/yaki/static/gulp/tasks/development/sass.js",
+		"/C/Projects/Work/leroymerlin/project/htdocs/bitrix/php_interface/include/misc/mail.php",
+		"/C/Projects/Work/leroymerlin/project/htdocs/bitrix/php_interface/mail_tpl/blank.php",
+		"/C/Projects/Work/leroymerlin/temp/mail/mail.php",
+		"/C/Projects/Work/leroymerlin/project/htdocs/bitrix/php_interface/mail_tpl/subscribe_welcome.php",
+		"/C/Projects/Work/leroymerlin/temp/mail/shop.list/template.php",
+		"/C/Users/strikepark/Desktop/ranging_module.txt",
+		"/C/Projects/Home/oldcooper/tmp/oldcooper/src/page.php",
+		"/C/Users/strikepark/Downloads/Pi_Lektsia_4.rar",
+		"/F/v2/PLIS/Копия parking_sensor/ranging_module.v",
+		"/F/PLIS/ranging_module.v",
+		"/C/Projects/Home/oldcooper/tmp/oldcooper2/gulpfile.js",
+		"/C/Projects/Home/oldcooper/tmp/oldcooper2/.gitignore",
+		"/C/Projects/Home/oldcooper/tmp/oldcooper2/package.json",
+		"/C/Projects/Home/oldcooper/tmp/oldcooper/functions.php",
+		"/C/Projects/Home/oldcooper/tmp/oldcooper2/src/functions.php",
+		"/C/Projects/Home/oldcooper/tmp/oldcooper2/build/functions.php",
+		"/C/Projects/Home/oldcooper/tmp/oldcooper2/src/js/index.js",
+		"/C/Projects/Home/oldcooper/tmp/oldcooper2/build/js/script.js",
+		"/C/Projects/Home/oldcooper/tmp/oldcooper2/src/css/all/footer.css",
+		"/C/Projects/Home/oldcooper/tmp/oldcooper2/src/css/all/main_page.css",
+		"/C/Projects/Home/oldcooper/tmp/oldcooper2/src/css/all/core.css",
+		"/C/Projects/Home/oldcooper/tmp/oldcooper2/src/css/all/header.css",
+		"/C/Projects/Home/oldcooper/tmp/oldcooper2/src/css/style.css",
+		"/C/Projects/Home/oldcooper/tmp/oldcooper2/build/style.css",
+		"/C/Projects/Home/oldcooper/tmp/oldcooper2/src/style.css",
+		"/C/Projects/Home/oldcooper/tmp/oldcooper/style.css",
+		"/C/Projects/Home/oldcooper/tmp/oldcooper/main.php",
+		"/C/Projects/Home/oldcooper/tmp/oldcooper/footer.php",
+		"/C/Projects/Home/oldcooper/tmp/oldcooper/header.php",
+		"/C/Users/strikepark/Desktop/v0.0.1_alfa/Sensor.v",
+		"/C/Users/strikepark/Desktop/DE1/DE1_demonstrations/DE1_i2sound/DE1_i2sound.v",
+		"/D/University/PLIS/lab3/FSM.v",
+		"/G/v0.0.2_alfa/DC.v",
+		"/G/v0.0.2_alfa/FSM.v",
+		"/C/Users/strikepark/Desktop/v0.0.1_alfa/main.v",
+		"/D/University/PLIS/lab2/lab2_1/dcdec.v",
+		"/C/Users/strikepark/Downloads/max2sonar/max2sonar/sonar_HC_SR04.v",
+		"/C/Projects/Home/oldcooper/tmp/oldcooper/page.php",
+		"/C/Projects/Home/oldcooper/tmp/oldcooper/singe.php",
+		"/C/Users/strikepark/Desktop/DE1/DE1_demonstrations/DE1_i2sound/PLL.v",
+		"/C/Users/strikepark/Desktop/DE1/DE1_demonstrations/DE1_i2sound/I2C_Controller.v",
+		"/C/Projects/Home/oldcooper/tmp/oldcooper/index.php",
+		"/C/Projects/Work/yaki/yaki/static/src/cart.html",
+		"/C/Projects/Work/yaki/yaki/static/src/style/partials/_buttons.scss",
+		"/G/header.php",
+		"/C/Projects/Home/oldcooper/tmp/oldcooper/search.php",
+		"/C/Projects/Home/oldcooper/tmp/oldcooper/404.php",
+		"/C/Projects/Home/oldcooper/tmp/oldcooper/js/lib/likely.js",
+		"/C/Projects/Home/oldcooper/tmp/oldcooper/css/lib/likely.css",
+		"/C/Projects/Home/oldcooper/tmp/oldcooper/css/lib/reset.css",
+		"/C/Projects/Home/oldcooper/tmp/storefront.2.0.1/storefront/inc/storefront-template-functions.php",
+		"/C/Projects/Work/yaki/yaki/static/mobile/src/order-2.html",
+		"/C/Projects/Home/oldcooper/tmp/wordpress-4.5.2-ru_RU/wordpress/wp-config.php",
+		"/C/Projects/Work/yaki/yaki/static/src/style/partials/_grid.scss",
+		"/C/Projects/Work/yaki/yaki/static/src/style/partials/_catalog.scss"
+	],
+	"find":
+	{
+		"height": 36.0
+	},
+	"find_in_files":
+	{
+		"height": 102.0,
+		"where_history":
+		[
+			"E:\\Home\\oldcooper\\site\\src\\assets",
+			"E:\\Home\\oldcooper\\site\\src",
+			"E:\\Home\\oldcooper\\site\\src\\assets",
+			"E:\\Home\\oldcooper\\site\\src\\assets\\single-product",
+			"E:\\Home\\oldcooper\\site\\src\\assets\\single-product\\add-to-cart",
+			"E:\\Home\\oldcooper\\site\\src\\assets\\single-product",
+			"E:\\Home\\oldcooper\\site\\src\\assets\\single-product\\add-to-cart",
+			"E:\\Home\\oldcooper\\site\\src\\assets\\single-product",
+			"E:\\Home\\oldcooper\\site\\src\\assets\\single-product\\add-to-cart",
+			"C:\\Projects\\Home\\oldcooper\\tmp\\storefront.2.0.1\\storefront",
+			"C:\\Projects\\Work\\yaki\\yaki\\static\\mobile\\src",
+			"C:\\Projects\\Work\\yaki\\yaki\\static\\src",
+			"C:\\Projects\\Work\\yaki\\yaki\\static\\mobile\\src",
+			"C:\\Projects\\Work\\yaki\\yaki\\static\\src\\style",
+			"C:\\Projects\\Work\\yaki\\yaki\\static\\src",
+			"C:\\Projects\\Work\\yaki\\yaki\\static\\mobile\\src",
+			"C:\\Projects\\Work\\yaki\\yaki\\static\\mobile\\src\\style\\partials"
+		]
+	},
+	"find_state":
+	{
+		"case_sensitive": false,
+		"find_history":
+		[
+			"tmpa",
+			"sound_o",
+			"music1_ramp",
+			"key_code",
+			"scan_code1",
+			"sound_off1",
+			"KEY",
+			"sound1",
+			"I2C_SCLK",
+			"I2C_SDAT",
+			"iVOL",
+			"I2C_END",
+			"DELAY",
+			"chosen-select",
+			"класс",
+			"message",
+			"woocommerce-message",
+			"woocommerce-variation-price",
+			"single_variation",
+			"}\n",
+			"variations_button",
+			"Продукт имеет вариации",
+			"option",
+			"variations",
+			"sound_off1",
+			"scan_code1",
+			"sound_code1",
+			"demo_code1",
+			"VGA_CLK",
+			"VGA_CLK_o",
+			">",
+			">>>",
+			"перейти",
+			"build",
+			"ping",
+			"period_cnt_cout",
+			"poll_cnt",
+			"clk1Mhz",
+			"poll_cnt_cout",
+			"distance",
+			"mydist",
+			"ping",
+			"echo",
+			"trigger",
+			"class=\"section-title\"",
+			"Адреса доставки",
+			"-two",
+			"markers",
+			"marke",
+			"mar",
+			"favo",
+			"_product",
+			"_product_carousel",
+			"markers",
+			"<a href=\"\" class=\"btn btn_red btn_bd btn_sm mt js-preview-toggle\">Подробнее</a>",
+			"js-preview-toggle",
+			"tablet-lg",
+			"table",
+			"news-list",
+			"__text",
+			"#news-list",
+			"__box"
+		],
+		"highlight": true,
+		"in_selection": false,
+		"preserve_case": false,
+		"regex": false,
+		"replace_history":
+		[
+			"scan_code",
+			"oldcooper",
+			"trig",
+			"period_cnt_full",
+			"period_cnt",
+			"clk",
+			"<button type=\"button\" class=\"btn btn_red btn_bd btn_sm mt js-preview-toggle\">Подробнее</button>"
+		],
+		"reverse": false,
+		"show_context": true,
+		"use_buffer2": true,
+		"whole_word": false,
+		"wrap": true
+	},
+	"groups":
+	[
+		{
+			"selected": 3,
+			"sheets":
+			[
+				{
+					"buffer": 0,
+					"file": "/G/work/parking_sensor/main.v",
+					"semi_transient": false,
+					"settings":
+					{
+						"buffer_size": 4493,
+						"regions":
+						{
+						},
+						"selection":
+						[
+							[
+								4387,
+								4403
+							]
+						],
+						"settings":
+						{
+							"syntax": "Packages/SystemVerilog/SystemVerilog.sublime-syntax",
+							"translate_tabs_to_spaces": false
+						},
+						"translation.x": 0.0,
+						"translation.y": 4541.0,
+						"zoom_level": 1.0
+					},
+					"stack_index": 3,
+					"type": "text"
+				},
+				{
+					"buffer": 1,
+					"file": "/G/work/parking_sensor/adio_codec.v",
+					"semi_transient": false,
+					"settings":
+					{
+						"buffer_size": 2255,
+						"regions":
+						{
+						},
+						"selection":
+						[
+							[
+								1890,
+								1897
+							]
+						],
+						"settings":
+						{
+							"syntax": "Packages/SystemVerilog/SystemVerilog.sublime-syntax"
+						},
+						"translation.x": 0.0,
+						"translation.y": 1468.0,
+						"zoom_level": 1.0
+					},
+					"stack_index": 1,
+					"type": "text"
+				},
+				{
+					"buffer": 2,
+					"file": "/G/work/parking_sensor/wave_gen_sin.v",
+					"semi_transient": false,
+					"settings":
+					{
+						"buffer_size": 1924,
+						"regions":
+						{
+						},
+						"selection":
+						[
+							[
+								7,
+								19
+							]
+						],
+						"settings":
+						{
+							"syntax": "Packages/SystemVerilog/SystemVerilog.sublime-syntax",
+							"translate_tabs_to_spaces": false
+						},
+						"translation.x": 0.0,
+						"translation.y": 0.0,
+						"zoom_level": 1.0
+					},
+					"stack_index": 2,
+					"type": "text"
+				},
+				{
+					"buffer": 3,
+					"file": "/G/work/parking_sensor/demo_sound1.v",
+					"semi_transient": false,
+					"settings":
+					{
+						"buffer_size": 1659,
+						"regions":
+						{
+						},
+						"selection":
+						[
+							[
+								0,
+								1659
+							]
+						],
+						"settings":
+						{
+							"syntax": "Packages/SystemVerilog/SystemVerilog.sublime-syntax",
+							"translate_tabs_to_spaces": false
+						},
+						"translation.x": 0.0,
+						"translation.y": 0.0,
+						"zoom_level": 1.0
+					},
+					"stack_index": 0,
+					"type": "text"
+				},
+				{
+					"buffer": 4,
+					"file": "/G/work/parking_sensor/I2C_AV_Config.v",
+					"semi_transient": false,
+					"settings":
+					{
+						"buffer_size": 3288,
+						"regions":
+						{
+						},
+						"selection":
+						[
+							[
+								2923,
+								2941
+							]
+						],
+						"settings":
+						{
+							"syntax": "Packages/SystemVerilog/SystemVerilog.sublime-syntax"
+						},
+						"translation.x": -0.0,
+						"translation.y": 2221.0,
+						"zoom_level": 1.0
+					},
+					"stack_index": 5,
+					"type": "text"
+				},
+				{
+					"buffer": 5,
+					"file": "/C/Users/strikepark/Desktop/DE1/DE1_demonstrations/DE1_synthesizer/DE1_synthesizer.v",
+					"semi_transient": false,
+					"settings":
+					{
+						"buffer_size": 10957,
+						"regions":
+						{
+						},
+						"selection":
+						[
+							[
+								7787,
+								7798
+							]
+						],
+						"settings":
+						{
+							"syntax": "Packages/SystemVerilog/SystemVerilog.sublime-syntax"
+						},
+						"translation.x": 0.0,
+						"translation.y": 3608.0,
+						"zoom_level": 1.0
+					},
+					"stack_index": 4,
+					"type": "text"
+				}
+			]
+		}
+	],
+	"incremental_find":
+	{
+		"height": 36.0
+	},
+	"input":
+	{
+		"height": 38.0
+	},
+	"layout":
+	{
+		"cells":
+		[
+			[
+				0,
+				0,
+				1,
+				1
+			]
+		],
+		"cols":
+		[
+			0.0,
+			1.0
+		],
+		"rows":
+		[
+			0.0,
+			1.0
+		]
+	},
+	"menu_visible": true,
+	"output.find_results":
+	{
+		"height": 0.0
+	},
+	"output.gulp_output":
+	{
+		"height": 228.0
+	},
+	"pinned_build_system": "",
+	"project": "course.sublime-project",
+	"replace":
+	{
+		"height": 66.0
+	},
+	"save_all_on_build": true,
+	"select_file":
+	{
+		"height": 0.0,
+		"last_filter": "",
+		"selected_items":
+		[
+		],
+		"width": 0.0
+	},
+	"select_project":
+	{
+		"height": 500.0,
+		"last_filter": "",
+		"selected_items":
+		[
+			[
+				"",
+				"E:\\Home\\oldcooper\\temp\\woocommerce\\woocommerce.sublime-project"
+			]
+		],
+		"width": 380.0
+	},
+	"select_symbol":
+	{
+		"height": 0.0,
+		"last_filter": "",
+		"selected_items":
+		[
+		],
+		"width": 0.0
+	},
+	"selected_group": 0,
+	"settings":
+	{
+	},
+	"show_minimap": true,
+	"show_open_files": false,
+	"show_tabs": true,
+	"side_bar_visible": true,
+	"side_bar_width": 163.0,
+	"status_bar_visible": true,
+	"template_settings":
+	{
+	}
+}
